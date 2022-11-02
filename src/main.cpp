@@ -72,7 +72,7 @@ unsigned long read_hex(int size) {
 }
 
 void set_break_point() {
-    char buffer[32];
+    char buffer[48];
     word address = (word) read_hex(4);
     sprintf(buffer, "Setting break point to %04x", address);
     message(buffer);
@@ -81,7 +81,7 @@ void set_break_point() {
 }
 
 void read_memory() {
-    char buffer[32];
+    char buffer[48];
 
     tracing_enabled = false;
     step_enabled = false;
@@ -104,7 +104,7 @@ void read_memory() {
 }
 
 void write_memory() {
-    char buffer[32];
+    char buffer[48];
 
     tracing_enabled = false;
     step_enabled = false;
@@ -124,13 +124,28 @@ void write_memory() {
     message((char *) "Bus released");
 }
 
+void handle_programming() {
+    char buffer[48];
+
+    word address = (word) read_hex(4);
+    byte data = (byte) read_hex(2);
+    message((char *) "Starting programming");
+
+    sprintf(buffer, "Setting memory at %04x to %02x", address, data);
+    message(buffer);
+
+    c65.start_programming();
+    c65.program_byte(address, data);
+    c65.end_programming();
+    message((char *) "End programming");
+}
 void loop() {
     if (Serial.available() > 0) {
         byte incomingByte = Serial.read();
         switch (incomingByte) {
             case ':':
                 // start of an Intel HEX file, begin programming EEPROM
-//                handleProgramming();
+                handle_programming();
                 break;
             case 'b':
                 // set a break point on a memory address (does not need to be an instruction)

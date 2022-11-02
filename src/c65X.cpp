@@ -23,6 +23,9 @@
 #define SIG_VPB                 7
 #define SIG_BUS_ENABLE          8
 #define SIG_ROM_WRITE_ENABLE    9
+#define SIG_ROM_OUTPUT_ENABLE   10
+#define SIG_ROM_CHIP_ENABLE     11
+#define SIG_ROM_PROGRAM         12
 
 
 C65X::C65X() {}
@@ -43,19 +46,22 @@ void C65X::initialize() {
     pinMode(SIG_VPB, INPUT);
     pinMode(SIG_BUS_ENABLE, INPUT);
     pinMode(SIG_ROM_WRITE_ENABLE, INPUT);
+    pinMode(SIG_ROM_OUTPUT_ENABLE, INPUT);
+    pinMode(SIG_ROM_CHIP_ENABLE, INPUT);
+    pinMode(SIG_ROM_PROGRAM, INPUT);
 
     pinMode(SIG_CLOCK_ENABLE, OUTPUT);
     pinMode(SIG_CLOCK_ALT, OUTPUT);
 
-    digitalWrite(SIG_CLOCK_ENABLE, 1);
-    digitalWrite(SIG_CLOCK_ALT, 0);
+    digitalWrite(SIG_CLOCK_ENABLE, LOW);
+    digitalWrite(SIG_CLOCK_ALT, LOW);
 }
 
 void C65X::enable_system_clock(bool enable) {
     if (enable) {
-        digitalWrite(SIG_CLOCK_ENABLE, 1);
+        digitalWrite(SIG_CLOCK_ENABLE, LOW);
     } else {
-        digitalWrite(SIG_CLOCK_ENABLE, 0);
+        digitalWrite(SIG_CLOCK_ENABLE, HIGH);
     }
 }
 
@@ -80,10 +86,10 @@ void C65X::clock_cycles(int cycles) {
 void C65X::bus_enable(bool enable) {
     if (enable) {
         pinMode(SIG_BUS_ENABLE, INPUT);
-        digitalWrite(SIG_BUS_ENABLE, 1);
+        digitalWrite(SIG_BUS_ENABLE, HIGH);
     } else {
         pinMode(SIG_BUS_ENABLE, OUTPUT);
-        digitalWrite(SIG_BUS_ENABLE, 0);
+        digitalWrite(SIG_BUS_ENABLE, LOW);
     }
 }
 
@@ -133,12 +139,12 @@ void C65X::control_bus(bool enable) {
 
         DDR_ADDR_H = B11111111;
         DDR_ADDR_L = B11111111;
-        WRITE_ADDR_H = 0;
-        WRITE_ADDR_L = 0;
+        WRITE_ADDR_H = 0xff;
+        WRITE_ADDR_L = 0xff;
 
         DDR_DATA = B00000000;
 
-        digitalWrite(SIG_READ_WRITE, 1);
+        digitalWrite(SIG_READ_WRITE, HIGH);
         pinMode(SIG_READ_WRITE, OUTPUT);
     } else {
         DDR_ADDR_H = B00000000;
@@ -155,7 +161,7 @@ void C65X::read_address(word address) {
     char buffer[16];
 
     clock(0);
-    digitalWrite(SIG_READ_WRITE, 1);
+    digitalWrite(SIG_READ_WRITE, HIGH);
 
     WRITE_ADDR_H = highByte(address);
     WRITE_ADDR_L =  lowByte(address);
@@ -173,7 +179,7 @@ void C65X::read_address(word address) {
 
 void  C65X::write_address(word address, byte data) {
     clock( 0);
-    digitalWrite(SIG_READ_WRITE, 0);
+    digitalWrite(SIG_READ_WRITE, LOW);
     WRITE_ADDR_H = highByte(address);
     WRITE_ADDR_L = lowByte(address);
 
@@ -188,18 +194,97 @@ void  C65X::write_address(word address, byte data) {
     __asm__("nop\n\t");
     __asm__("nop\n\t");
 
-    digitalWrite(SIG_READ_WRITE, 1);
+    digitalWrite(SIG_READ_WRITE, HIGH);
     DDR_DATA = B00000000;
 }
 
 void C65X::start_programming() {
+    C65X::control_bus(true);
+
+    digitalWrite(SIG_ROM_WRITE_ENABLE, HIGH);
+    digitalWrite(SIG_ROM_CHIP_ENABLE, HIGH);
+    digitalWrite(SIG_ROM_OUTPUT_ENABLE, HIGH);
+    digitalWrite(SIG_ROM_PROGRAM, LOW);
+    pinMode(SIG_ROM_OUTPUT_ENABLE, OUTPUT);
+    pinMode(SIG_ROM_CHIP_ENABLE, OUTPUT);
+    pinMode(SIG_ROM_WRITE_ENABLE, OUTPUT);
+    pinMode(SIG_ROM_PROGRAM, OUTPUT);
 
 }
 
 void C65X::end_programming() {
+    digitalWrite(SIG_ROM_WRITE_ENABLE, HIGH);
+    digitalWrite(SIG_ROM_CHIP_ENABLE, HIGH);
+    digitalWrite(SIG_ROM_PROGRAM, HIGH);
+    digitalWrite(SIG_ROM_OUTPUT_ENABLE, HIGH);
+    pinMode(SIG_ROM_WRITE_ENABLE, INPUT);
+    pinMode(SIG_ROM_CHIP_ENABLE, INPUT);
+    pinMode(SIG_ROM_OUTPUT_ENABLE, INPUT);
+    pinMode(SIG_ROM_PROGRAM, INPUT);
 
+    C65X::control_bus(false);
+}
+
+bool poll_byte(byte data) {
+    byte poll = data ^ 0xff;
+    int cycle = 0;
+    while (data != poll && cycle++ < 100) {
+        digitalWrite(SIG_ROM_OUTPUT_ENABLE, LOW);
+        digitalWrite(SIG_ROM_CHIP_ENABLE, LOW);
+        __asm__("nop\n\t");
+        __asm__("nop\n\t");
+        __asm__("nop\n\t");
+
+        poll = READ_DATA;
+
+        digitalWrite(SIG_ROM_OUTPUT_ENABLE, HIGH);
+        digitalWrite(SIG_ROM_CHIP_ENABLE, HIGH);
+
+        __asm__("nop\n\t");
+        __asm__("nop\n\t");
+        Serial.println(poll);
+    }
+
+    Serial.println(cycle);
+    digitalWrite(SIG_ROM_OUTPUT_ENABLE, HIGH);
+    digitalWrite(SIG_ROM_CHIP_ENABLE, HIGH);
+    if (cycle >= 100) {
+        Serial.println("MWrite failed!");
+        return false;
+    }
+    Serial.println("MWrite okay");
+    return true;
 }
 
 bool C65X::program_byte(word address, byte data) {
-    return false;
+    digitalWrite(SIG_ROM_WRITE_ENABLE, HIGH);
+    digitalWrite(SIG_ROM_CHIP_ENABLE, HIGH);
+    digitalWrite(SIG_ROM_OUTPUT_ENABLE, HIGH);
+
+    DDR_ADDR_H = B11111111;
+    DDR_ADDR_L = B11111111;
+    DDR_DATA = B11111111;
+    WRITE_ADDR_H = highByte(address);
+    WRITE_ADDR_L = lowByte(address);
+    WRITE_DATA = data;
+
+    __asm__("nop\n\t");
+    digitalWrite(SIG_ROM_CHIP_ENABLE, LOW);
+    __asm__("nop\n\t");
+
+    digitalWrite(SIG_ROM_WRITE_ENABLE, LOW);
+    __asm__("nop\n\t");
+    __asm__("nop\n\t");
+    __asm__("nop\n\t");
+    digitalWrite(SIG_ROM_WRITE_ENABLE, HIGH);
+    __asm__("nop\n\t");
+    __asm__("nop\n\t");
+
+    DDR_DATA = B00000000;
+    digitalWrite(SIG_ROM_OUTPUT_ENABLE, LOW);
+
+    bool result = poll_byte(data);
+
+    return result;
 }
+

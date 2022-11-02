@@ -26,7 +26,7 @@ public:
     void write_address(word address, byte data);
     void start_programming();
     void end_programming();
-    bool program_byte(word address, byte data) ;
+    bool program_byte(word address, byte data);
 
 private:
     C65X();
