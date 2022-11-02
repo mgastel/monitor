@@ -126,16 +126,21 @@ void write_memory() {
 
 void handle_programming() {
     char buffer[48];
+    byte data[64];
+
 
     word address = (word) read_hex(4);
-    byte data = (byte) read_hex(2);
+    data[0] = (byte) read_hex(2);
+    for (byte i = 1; i < 16; i ++) {
+        data[i] = i + data[0];
+    }
     message((char *) "Starting programming");
 
-    sprintf(buffer, "Setting memory at %04x to %02x", address, data);
+    sprintf(buffer, "Setting memory at %04x to %02x", address, data[0]);
     message(buffer);
 
     c65.start_programming();
-    c65.program_byte(address, data);
+    c65.program_bytes(address, data, 16);
     c65.end_programming();
     message((char *) "End programming");
 }

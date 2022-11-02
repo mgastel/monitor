@@ -240,23 +240,19 @@ bool poll_byte(byte data) {
         digitalWrite(SIG_ROM_OUTPUT_ENABLE, HIGH);
         digitalWrite(SIG_ROM_CHIP_ENABLE, HIGH);
 
-        __asm__("nop\n\t");
-        __asm__("nop\n\t");
-        Serial.println(poll);
+        delay(1);
     }
 
     Serial.println(cycle);
     digitalWrite(SIG_ROM_OUTPUT_ENABLE, HIGH);
     digitalWrite(SIG_ROM_CHIP_ENABLE, HIGH);
     if (cycle >= 100) {
-        Serial.println("MWrite failed!");
         return false;
     }
-    Serial.println("MWrite okay");
     return true;
 }
 
-bool C65X::program_byte(word address, byte data) {
+bool C65X::program_bytes(word address, byte *data, byte size) {
     digitalWrite(SIG_ROM_WRITE_ENABLE, HIGH);
     digitalWrite(SIG_ROM_CHIP_ENABLE, HIGH);
     digitalWrite(SIG_ROM_OUTPUT_ENABLE, HIGH);
@@ -265,25 +261,27 @@ bool C65X::program_byte(word address, byte data) {
     DDR_ADDR_L = B11111111;
     DDR_DATA = B11111111;
     WRITE_ADDR_H = highByte(address);
-    WRITE_ADDR_L = lowByte(address);
-    WRITE_DATA = data;
 
     __asm__("nop\n\t");
     digitalWrite(SIG_ROM_CHIP_ENABLE, LOW);
-    __asm__("nop\n\t");
 
-    digitalWrite(SIG_ROM_WRITE_ENABLE, LOW);
-    __asm__("nop\n\t");
-    __asm__("nop\n\t");
-    __asm__("nop\n\t");
-    digitalWrite(SIG_ROM_WRITE_ENABLE, HIGH);
-    __asm__("nop\n\t");
-    __asm__("nop\n\t");
+    for (byte i = 0; i < size; i++) {
+        WRITE_ADDR_L = lowByte(address + i);
+        WRITE_DATA = data[i];
+
+        __asm__("nop\n\t");
+
+        digitalWrite(SIG_ROM_WRITE_ENABLE, LOW);
+        __asm__("nop\n\t");
+        __asm__("nop\n\t");
+        digitalWrite(SIG_ROM_WRITE_ENABLE, HIGH);
+        __asm__("nop\n\t");
+    }
 
     DDR_DATA = B00000000;
     digitalWrite(SIG_ROM_OUTPUT_ENABLE, LOW);
 
-    bool result = poll_byte(data);
+    bool result = poll_byte(data[size-1]);
 
     return result;
 }
