@@ -8,24 +8,77 @@
 #define DDR_ADDR_H  DDRC
 #define DDR_ADDR_L  DDRL
 #define DDR_DATA    DDRA
-#define READ_ADDR_H  PINC
-#define READ_ADDR_L  PINL
-#define READ_DATA    PINA
 #define WRITE_ADDR_H  PORTC
 #define WRITE_ADDR_L  PORTL
 #define WRITE_DATA    PORTA
 
-#define SIG_CLOCK               2
-#define SIG_READ_WRITE          3
-#define SIG_CLOCK_ENABLE        4
-#define SIG_CLOCK_ALT           5
-#define SIG_SYNC                6
-#define SIG_VPB                 7
-#define SIG_BUS_ENABLE          8
-#define SIG_ROM_WRITE_ENABLE    9
-#define SIG_ROM_OUTPUT_ENABLE   10
-#define SIG_ROM_CHIP_ENABLE     11
-#define SIG_ROM_PROGRAM         12
+#define BUS_READ_WRITE          3
+#define BUS_CLOCK_ENABLE        4
+#define BUS_CLOCK_ALT           5
+#define BUS_SYNC                6
+#define BUS_VPB                 7
+#define BUS_BUS_ENABLE          8
+#define BUS_ROM_WRITE_ENABLE    9
+#define BUS_ROM_OUTPUT_ENABLE   10
+#define BUS_ROM_CHIP_ENABLE     11
+#define BUS_ROM_PROGRAM         12
+
+#define bus_system_clock_active()        digitalWrite(BUS_CLOCK_ENABLE, LOW)
+#define bus_system_clock_idle()          digitalWrite(BUS_CLOCK_ENABLE, HIGH)
+#define bus_bus_enable_active()          digitalWrite(BUS_BUS_ENABLE, LOW)
+#define bus_bus_enable_idle()            digitalWrite(BUS_BUS_ENABLE, HIGH)
+#define bus_read_write_write()           digitalWrite(BUS_READ_WRITE, LOW)
+#define bus_read_write_read()            digitalWrite(BUS_READ_WRITE, HIGH)
+#define rom_write_active()               digitalWrite(BUS_ROM_WRITE_ENABLE, LOW)
+#define rom_write_idle()                 digitalWrite(BUS_ROM_WRITE_ENABLE, HIGH)
+#define rom_output_active()              digitalWrite(BUS_ROM_OUTPUT_ENABLE, LOW)
+#define rom_output_idle()                digitalWrite(BUS_ROM_OUTPUT_ENABLE, HIGH)
+#define rom_enable_active()              digitalWrite(BUS_ROM_CHIP_ENABLE, LOW)
+#define rom_enable_idle()                digitalWrite(BUS_ROM_CHIP_ENABLE, HIGH)
+#define rom_program_active()             digitalWrite(BUS_ROM_PROGRAM, LOW)
+#define rom_program_idle()               digitalWrite(BUS_ROM_PROGRAM, HIGH)
+
+#define bus_read_write_state_input()     pinMode(BUS_READ_WRITE, INPUT)
+#define bus_read_write_state_output()    pinMode(BUS_READ_WRITE, OUTPUT)
+#define bus_bus_enable_state_input()     pinMode(BUS_BUS_ENABLE, INPUT)
+#define bus_bus_enable_state_output()    pinMode(BUS_BUS_ENABLE, OUTPUT)
+
+
+#define bus_rom_state(X) { \
+    pinMode(BUS_ROM_OUTPUT_ENABLE, X); \
+    pinMode(BUS_ROM_CHIP_ENABLE, X); \
+    pinMode(BUS_ROM_WRITE_ENABLE, X); \
+    pinMode(BUS_ROM_PROGRAM, X); \
+}
+
+#define STATE_REG_OUTPUT B11111111
+#define STATE_REG_INPUT  B00000000
+#define bus_data_state_reg(X)   DDR_DATA = X
+#define bus_address_state_reg(X) { \
+    DDR_ADDR_H = X; \
+    DDR_ADDR_L = X; \
+}
+#define get_bus_address() ((word)PINC << 8) | (word)PINL
+#define get_bus_data()    PINA
+#define set_bus_address(X) { \
+    WRITE_ADDR_H = highByte(X); \
+    WRITE_ADDR_L = lowByte(X); \
+}
+#define set_bus_address_low(X) { \
+    WRITE_ADDR_L = X; \
+}
+#define set_bus_data(X) { \
+    WRITE_DATA = X; \
+}
+
+#define delay_cycle()     __asm__("nop\n\t")
+
+
+void clock(int signal) {
+    digitalWrite(BUS_CLOCK_ALT, signal);
+    digitalWrite(LED_BUILTIN, signal);
+}
+
 
 
 C65X::C65X() {}
@@ -33,63 +86,53 @@ C65X::C65X() {}
 void C65X::initialize() {
     C65X::break_point = 0;
 
-    // set data and address bus to input
-    DDR_DATA = 0;
-    DDR_ADDR_L = 0;
-    DDR_ADDR_H = 0;
-
     pinMode(LED_BUILTIN, OUTPUT);
+    pinMode(BUS_SYNC, INPUT);
+    pinMode(BUS_VPB, INPUT);
+    pinMode(BUS_CLOCK_ENABLE, OUTPUT);
+    pinMode(BUS_CLOCK_ALT, OUTPUT);
 
-    pinMode(SIG_CLOCK, INPUT);
-    pinMode(SIG_READ_WRITE, INPUT);
-    pinMode(SIG_SYNC, INPUT);
-    pinMode(SIG_VPB, INPUT);
-    pinMode(SIG_BUS_ENABLE, INPUT);
-    pinMode(SIG_ROM_WRITE_ENABLE, INPUT);
-    pinMode(SIG_ROM_OUTPUT_ENABLE, INPUT);
-    pinMode(SIG_ROM_CHIP_ENABLE, INPUT);
-    pinMode(SIG_ROM_PROGRAM, INPUT);
+    bus_read_write_state_input();
+    bus_bus_enable_state_input();
+    bus_rom_state(INPUT);
 
-    pinMode(SIG_CLOCK_ENABLE, OUTPUT);
-    pinMode(SIG_CLOCK_ALT, OUTPUT);
+    // set data and address bus to input
+    bus_address_state_reg(STATE_REG_INPUT);
+    bus_data_state_reg(STATE_REG_INPUT);
 
-    digitalWrite(SIG_CLOCK_ENABLE, LOW);
-    digitalWrite(SIG_CLOCK_ALT, LOW);
+    C65X::enable_system_clock(true);
+    clock(LOW);
 }
 
 void C65X::enable_system_clock(bool enable) {
     if (enable) {
-        digitalWrite(SIG_CLOCK_ENABLE, LOW);
+        bus_system_clock_active();
     } else {
-        digitalWrite(SIG_CLOCK_ENABLE, HIGH);
+        bus_system_clock_idle();
     }
 }
 
-void clock(int signal) {
-    digitalWrite(SIG_CLOCK_ALT, signal);
-    digitalWrite(LED_BUILTIN, signal);
-}
 
 void C65X::clock_cycles(int cycles) {
     int i;
 
     for (i = 0; i < cycles * 2; i++) {
-        clock(1);
-        __asm__("nop\n\t");
-        __asm__("nop\n\t");
-        clock(0);
-        __asm__("nop\n\t");
-        __asm__("nop\n\t");
+        clock(HIGH);
+        delay_cycle();
+        delay_cycle();
+        clock(LOW);
+        delay_cycle();
+        delay_cycle();
     }
 }
 
 void C65X::bus_enable(bool enable) {
     if (enable) {
-        pinMode(SIG_BUS_ENABLE, INPUT);
-        digitalWrite(SIG_BUS_ENABLE, HIGH);
+        bus_bus_enable_state_input();
+        bus_bus_enable_idle();
     } else {
-        pinMode(SIG_BUS_ENABLE, OUTPUT);
-        digitalWrite(SIG_BUS_ENABLE, LOW);
+        bus_bus_enable_state_output();
+        bus_bus_enable_active();
     }
 }
 
@@ -105,22 +148,20 @@ bool C65X::step() {
     char buffer[32];
 
     clock(0);
-    __asm__("nop\n\t");
-
+    delay_cycle();
     clock(1);
-
-    __asm__("nop\n\t");
+    delay_cycle();
 
     char flag = ' ';
-    if (digitalRead(SIG_SYNC)) {
+    if (digitalRead(BUS_SYNC)) {
         flag = 'S';
-    } else if (! digitalRead(SIG_VPB)) {
+    } else if (! digitalRead(BUS_VPB)) {
         flag = 'V';
     }
-    char rw = digitalRead(SIG_READ_WRITE)? 'r':'W';
+    char rw = digitalRead(BUS_READ_WRITE)? 'r':'W';
 
-    word address = ((word) READ_ADDR_H) << 8 | READ_ADDR_L;
-    sprintf(buffer, "T%c %04x %c %02x", flag, (unsigned int) address, rw, (unsigned int) READ_DATA);
+    word address = get_bus_address();
+    sprintf(buffer, "T%c%04x%c%02x", flag, (unsigned int) address, rw, (unsigned int) get_bus_data());
     Serial.println(buffer);
 
     clock(0);
@@ -137,22 +178,17 @@ void C65X::control_bus(bool enable) {
         C65X::enable_system_clock(false);
         C65X::clock_cycles(10);
 
-        DDR_ADDR_H = B11111111;
-        DDR_ADDR_L = B11111111;
-        WRITE_ADDR_H = 0xff;
-        WRITE_ADDR_L = 0xff;
-
-        DDR_DATA = B00000000;
-
-        digitalWrite(SIG_READ_WRITE, HIGH);
-        pinMode(SIG_READ_WRITE, OUTPUT);
+        bus_address_state_reg(STATE_REG_OUTPUT);
+        set_bus_address(0xffff);
+        bus_data_state_reg(STATE_REG_INPUT);
+        bus_read_write_read();
+        bus_read_write_state_output();
     } else {
-        DDR_ADDR_H = B00000000;
-        DDR_ADDR_L = B00000000;
+        bus_address_state_reg(STATE_REG_INPUT);
+        bus_data_state_reg(STATE_REG_INPUT);
+        bus_read_write_read();
+        bus_read_write_state_input();
 
-        DDR_DATA = B00000000;
-
-        pinMode(SIG_READ_WRITE, INPUT);
         C65X::bus_enable(true);
     }
 }
@@ -161,67 +197,57 @@ void C65X::read_address(word address) {
     char buffer[16];
 
     clock(0);
-    digitalWrite(SIG_READ_WRITE, HIGH);
+    bus_read_write_read();
 
-    WRITE_ADDR_H = highByte(address);
-    WRITE_ADDR_L =  lowByte(address);
-
-    __asm__("nop\n\t");
+    set_bus_address(address);
+    delay_cycle();
     clock(1);
-    __asm__("nop\n\t");
-    __asm__("nop\n\t");
-    byte data = READ_DATA;
+    delay_cycle();
+    delay_cycle();
+    byte data = get_bus_data();
     clock( 0);
 
-    sprintf(buffer, "R%04x %02x", (unsigned int) address, (unsigned int) data);
+    sprintf(buffer, "R%04x%02x", (unsigned int) address, (unsigned int) data);
     Serial.println(buffer);
 }
 
 void  C65X::write_address(word address, byte data) {
     clock( 0);
-    digitalWrite(SIG_READ_WRITE, LOW);
-    WRITE_ADDR_H = highByte(address);
-    WRITE_ADDR_L = lowByte(address);
+    bus_read_write_write();
+    set_bus_address(address);;
 
-    DDR_DATA = B11111111;
-    WRITE_DATA = data;
-    __asm__("nop\n\t");
-    __asm__("nop\n\t");
+    bus_data_state_reg(STATE_REG_OUTPUT);
+    set_bus_data(data);
+    delay_cycle();
+    delay_cycle();
     clock(1);
-    __asm__("nop\n\t");
-    __asm__("nop\n\t");
+    delay_cycle();
+    delay_cycle();
     clock(0);
-    __asm__("nop\n\t");
-    __asm__("nop\n\t");
+    delay_cycle();
+    delay_cycle();
 
-    digitalWrite(SIG_READ_WRITE, HIGH);
-    DDR_DATA = B00000000;
+    bus_read_write_read();
+    bus_data_state_reg(STATE_REG_INPUT);
 }
 
 void C65X::start_programming() {
     C65X::control_bus(true);
 
-    digitalWrite(SIG_ROM_WRITE_ENABLE, HIGH);
-    digitalWrite(SIG_ROM_CHIP_ENABLE, HIGH);
-    digitalWrite(SIG_ROM_OUTPUT_ENABLE, HIGH);
-    digitalWrite(SIG_ROM_PROGRAM, LOW);
-    pinMode(SIG_ROM_OUTPUT_ENABLE, OUTPUT);
-    pinMode(SIG_ROM_CHIP_ENABLE, OUTPUT);
-    pinMode(SIG_ROM_WRITE_ENABLE, OUTPUT);
-    pinMode(SIG_ROM_PROGRAM, OUTPUT);
-
+    rom_write_idle();
+    rom_enable_idle();
+    rom_output_idle();
+    rom_program_active();
+    bus_rom_state(OUTPUT);
 }
 
 void C65X::end_programming() {
-    digitalWrite(SIG_ROM_WRITE_ENABLE, HIGH);
-    digitalWrite(SIG_ROM_CHIP_ENABLE, HIGH);
-    digitalWrite(SIG_ROM_PROGRAM, HIGH);
-    digitalWrite(SIG_ROM_OUTPUT_ENABLE, HIGH);
-    pinMode(SIG_ROM_WRITE_ENABLE, INPUT);
-    pinMode(SIG_ROM_CHIP_ENABLE, INPUT);
-    pinMode(SIG_ROM_OUTPUT_ENABLE, INPUT);
-    pinMode(SIG_ROM_PROGRAM, INPUT);
-
+    rom_write_idle();
+    rom_enable_idle();
+    rom_output_idle();
+    rom_program_idle();
+    bus_rom_state(INPUT);
+    
     C65X::control_bus(false);
 }
 
@@ -229,23 +255,21 @@ bool poll_byte(byte data) {
     byte poll = data ^ 0xff;
     int cycle = 0;
     while (data != poll && cycle++ < 100) {
-        digitalWrite(SIG_ROM_OUTPUT_ENABLE, LOW);
-        digitalWrite(SIG_ROM_CHIP_ENABLE, LOW);
-        __asm__("nop\n\t");
-        __asm__("nop\n\t");
-        __asm__("nop\n\t");
+        rom_output_active();
+        rom_enable_active();
+        delay_cycle();
+        delay_cycle();
+        delay_cycle();
 
-        poll = READ_DATA;
+        poll = get_bus_data();
 
-        digitalWrite(SIG_ROM_OUTPUT_ENABLE, HIGH);
-        digitalWrite(SIG_ROM_CHIP_ENABLE, HIGH);
+        rom_output_idle();
+        rom_enable_idle();
 
         delay(1);
     }
 
-    Serial.println(cycle);
-    digitalWrite(SIG_ROM_OUTPUT_ENABLE, HIGH);
-    digitalWrite(SIG_ROM_CHIP_ENABLE, HIGH);
+    rom_enable_idle();
     if (cycle >= 100) {
         return false;
     }
@@ -253,33 +277,32 @@ bool poll_byte(byte data) {
 }
 
 bool C65X::program_bytes(word address, byte *data, byte size) {
-    digitalWrite(SIG_ROM_WRITE_ENABLE, HIGH);
-    digitalWrite(SIG_ROM_CHIP_ENABLE, HIGH);
-    digitalWrite(SIG_ROM_OUTPUT_ENABLE, HIGH);
+    rom_write_idle();
+    rom_enable_idle();
+    rom_output_idle();
 
-    DDR_ADDR_H = B11111111;
-    DDR_ADDR_L = B11111111;
-    DDR_DATA = B11111111;
-    WRITE_ADDR_H = highByte(address);
+    bus_address_state_reg(STATE_REG_OUTPUT);
+    bus_data_state_reg(STATE_REG_OUTPUT);
+    set_bus_address(address);
 
-    __asm__("nop\n\t");
-    digitalWrite(SIG_ROM_CHIP_ENABLE, LOW);
+    delay_cycle();
+    rom_enable_active();
 
     for (byte i = 0; i < size; i++) {
-        WRITE_ADDR_L = lowByte(address + i);
-        WRITE_DATA = data[i];
+        set_bus_address_low(address + i);
+        set_bus_data(data[i]);
 
-        __asm__("nop\n\t");
+        delay_cycle();
 
-        digitalWrite(SIG_ROM_WRITE_ENABLE, LOW);
-        __asm__("nop\n\t");
-        __asm__("nop\n\t");
-        digitalWrite(SIG_ROM_WRITE_ENABLE, HIGH);
-        __asm__("nop\n\t");
+        rom_write_active();
+        delay_cycle();
+        delay_cycle();
+        rom_write_idle();
+        delay_cycle();
     }
 
-    DDR_DATA = B00000000;
-    digitalWrite(SIG_ROM_OUTPUT_ENABLE, LOW);
+    bus_data_state_reg(STATE_REG_INPUT);
+    rom_enable_idle();
 
     bool result = poll_byte(data[size-1]);
 
