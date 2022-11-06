@@ -268,8 +268,9 @@ bool poll_byte(byte data) {
 
         delay(1);
     }
-
     rom_enable_idle();
+
+    Serial.println(cycle);
     if (cycle >= 100) {
         return false;
     }
@@ -277,6 +278,16 @@ bool poll_byte(byte data) {
 }
 
 bool C65X::program_bytes(word address, byte *data, byte size) {
+    if (size > 64 || size ==0) {
+        // maximum write size of 64 bytes
+        Serial.println("MWrite too big");
+        return false;
+    }
+    if ((address & 0xffc0) != ((address + size - 1) & 0xffc0)) {
+        // the 64 byte range must be in the same "segment"
+        Serial.println("MStart/End not in same segment");
+        return false;
+    }
     rom_write_idle();
     rom_enable_idle();
     rom_output_idle();
@@ -293,7 +304,6 @@ bool C65X::program_bytes(word address, byte *data, byte size) {
         set_bus_data(data[i]);
 
         delay_cycle();
-
         rom_write_active();
         delay_cycle();
         delay_cycle();

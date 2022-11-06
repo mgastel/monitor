@@ -131,19 +131,26 @@ void handle_programming() {
 
     word address = (word) read_hex(4);
     data[0] = (byte) read_hex(2);
-    for (byte i = 1; i < 16; i ++) {
+    for (byte i = 1; i < 64; i ++) {
         data[i] = i + data[0];
     }
     message((char *) "Starting programming");
 
-    sprintf(buffer, "Setting memory at %04x to %02x", address, data[0]);
+    sprintf(buffer, "Setting eeprom at %04x to %02x", address, data[0]);
     message(buffer);
 
     c65.start_programming();
-    c65.program_bytes(address, data, 16);
+    bool state = c65.program_bytes(address, data, 64);
     c65.end_programming();
+    if (state) {
+        message((char *) "Programming successful");
+    } else {
+        message((char *) "Programming failed");
+    }
     message((char *) "End programming");
 }
+
+
 void loop() {
     if (Serial.available() > 0) {
         byte incomingByte = Serial.read();
